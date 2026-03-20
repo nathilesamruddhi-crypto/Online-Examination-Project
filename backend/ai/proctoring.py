@@ -1,6 +1,5 @@
 import cv2
 
-
 def monitor_student():
 
     cap = cv2.VideoCapture(0)
@@ -19,10 +18,10 @@ def monitor_student():
         faces = face.detectMultiScale(gray, 1.3, 5)
 
         if len(faces) == 0:
-            print("No face detected")
+            print("⚠️ No face detected")
 
         if len(faces) > 1:
-            print("Multiple faces detected")
+            print("⚠️ Multiple faces detected")
 
         cv2.imshow("Exam Monitoring", frame)
 

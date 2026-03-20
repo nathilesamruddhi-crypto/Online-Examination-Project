@@ -1,9 +1,56 @@
-from passlib.context import CryptContext
+# backend/auth.py
 
-pwd_context = CryptContext(schemes=["bcrypt"])
+import hashlib
+import logging
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from typing import Optional
 
-def hash_password(password):
-    return pwd_context.hash(password)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def verify_password(password, hashed):
-    return pwd_context.verify(password, hashed)
+# JWT Configuration
+SECRET_KEY = "your-secret-key-change-this-in-production"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+
+# ================= PASSWORD HASHING =================
+
+def hash_password(password: str) -> str:
+    """Simple SHA256 password hash."""
+    try:
+        return hashlib.sha256(password.encode()).hexdigest()
+    except Exception as e:
+        logger.error(f"Error hashing password: {e}")
+        raise
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+
+# ================= JWT TOKEN =================
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """Create JWT access token."""
+    to_encode = data.copy()
+
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    to_encode.update({"exp": expire})
+
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+    return encoded_jwt
+
+
+def verify_token(token: str):
+    """Verify JWT token."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        return None
