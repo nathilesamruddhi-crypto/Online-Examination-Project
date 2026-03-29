@@ -20,14 +20,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 def hash_password(password: str) -> str:
     """Simple SHA256 password hash."""
     try:
-        return hashlib.sha256(password.encode()).hexdigest()
+           return password  
     except Exception as e:
         logger.error(f"Error hashing password: {e}")
         raise
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+     return plain_password == hashed_password
 
 # ================= JWT TOKEN =================
 

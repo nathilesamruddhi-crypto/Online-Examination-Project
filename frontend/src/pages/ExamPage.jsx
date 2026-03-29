@@ -1,34 +1,40 @@
 // frontend/src/pages/ExamPage.jsx
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import * as faceapi from 'face-api.js';
 import {
-  Container,
-  Paper,
-  Typography,
-  Button,
+  Alert,
   Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  Grid,
+  LinearProgress,
+  Paper,
   Radio,
   RadioGroup,
-  FormControlLabel,
-  LinearProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Alert,
-  Chip,
-  Grid,
-  CircularProgress,
+  Typography,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import {
-  Timer,
+  CheckCircle,
   NavigateBefore,
   NavigateNext,
-  CheckCircle,
+  Timer,
 } from '@mui/icons-material';
-import { getExamQuestions, submitExam } from '../api';
-import { startAIMonitor } from "../api";
+import {
+  getExamDetails,
+  getExamQuestions,
+  getUserResults,
+  sendViolation as postViolation,
+  submitExam,
+} from '../api';
 
 const StyledPaper = styled(Paper)(({ theme }) => ({
   padding: theme.spacing(4),
@@ -37,7 +43,7 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   backdropFilter: 'blur(10px)',
 }));
 
-const QuestionNumber = styled(Button)(({ theme, active, answered }) => ({
+const QuestionNumber = styled(Button)(({ active, answered }) => ({
   minWidth: '40px',
   height: '40px',
   borderRadius: '10px',
@@ -52,6 +58,8 @@ const QuestionNumber = styled(Button)(({ theme, active, answered }) => ({
 const ExamPage = () => {
   const { examId } = useParams();
   const navigate = useNavigate();
+  const videoRef = useRef();
+
   const [questions, setQuestions] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState({});
@@ -62,92 +70,181 @@ const ExamPage = () => {
   const [warning, setWarning] = useState('');
   const [examSubmitted, setExamSubmitted] = useState(false);
   const [examData, setExamData] = useState(null);
-  
+  const [cameraStream, setCameraStream] = useState(null);
+  const [accessChecked, setAccessChecked] = useState(false);
+  const [examLocked, setExamLocked] = useState(false);
+
   const userId = localStorage.getItem('userId');
 
   useEffect(() => {
-    fetchExamData();
-  }, []);
+    const validateExamAccess = async () => {
+      try {
+        setLoading(true);
+
+        const resultsResponse = await getUserResults(userId);
+        const alreadyCompleted = (resultsResponse.data || []).some(
+          (result) => Number(result.exam_id) === Number(examId)
+        );
+
+        if (alreadyCompleted) {
+          setExamLocked(true);
+          setWarning('You have already completed this exam.');
+          navigate('/dashboard', { replace: true });
+          return;
+        }
+
+        const [questionsResponse, examResponse] = await Promise.all([
+          getExamQuestions(examId),
+          getExamDetails(examId),
+        ]);
+
+        setQuestions(questionsResponse.data || []);
+        setExamData(examResponse.data || null);
+      } catch (error) {
+        console.error(error);
+        setWarning('Failed to load exam data.');
+      } finally {
+        setAccessChecked(true);
+        setLoading(false);
+      }
+    };
+
+    validateExamAccess();
+  }, [examId, navigate, userId]);
 
   useEffect(() => {
-    if (examData && examData.duration) {
-      setTimeLeft(examData.duration * 60); // Convert minutes to seconds
+    if (examData?.duration) {
+      setTimeLeft(examData.duration * 60);
     }
   }, [examData]);
-  useEffect(() => {
-
-  const startMonitoring = async () => {
-    try {
-      await startAIMonitor();
-      console.log("AI Monitoring Started");
-    } catch (error) {
-      console.error("AI monitoring failed", error);
-    }
-  };
-
-  startMonitoring();
-
-}, []);
-
-useEffect(() => {
-
-  navigator.mediaDevices.getUserMedia({ video: true })
-    .then((stream) => {
-      console.log("Camera access granted");
-    })
-    .catch((err) => {
-      alert("Camera access required for exam monitoring");
-    });
-
-}, []);
 
   useEffect(() => {
-    if (timeLeft > 0) {
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            handleAutoSubmit();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    if (!accessChecked || examLocked) return;
 
-      return () => clearInterval(timer);
-    }
-  }, [timeLeft]);
+    let stream;
 
-  const fetchExamData = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch questions
-      const questionsResponse = await getExamQuestions(examId);
-      setQuestions(questionsResponse.data || []);
-      
-      // Initialize answers
-      const initialAnswers = {};
-      questionsResponse.data.forEach(q => {
-        initialAnswers[q.id] = '';
+    const startCamera = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        setCameraStream(stream);
+      } catch (err) {
+        alert('Camera permission required!');
+        navigate('/dashboard');
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [accessChecked, examLocked, navigate]);
+
+  useEffect(() => {
+    if (!accessChecked || examLocked || timeLeft <= 0) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleAutoSubmit();
+          return 0;
+        }
+        return prev - 1;
       });
-      setAnswers(initialAnswers);
-      
-      // You might want to fetch exam details here if you have an endpoint
-      // const examResponse = await getExam(examId);
-      // setExamData(examResponse.data);
-      
-      // For now, set a default duration of 60 minutes
-      setExamData({ duration: 60 });
-      
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [accessChecked, examLocked, timeLeft]);
+
+  useEffect(() => {
+    if (!accessChecked || examLocked) return;
+
+    const loadModels = async () => {
+      await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+    };
+
+    loadModels();
+  }, [accessChecked, examLocked]);
+
+  useEffect(() => {
+    if (!accessChecked || examLocked || !cameraStream) return;
+
+    const video = videoRef.current;
+    let localViolationCount = 0;
+
+    if (video) {
+      video.srcObject = cameraStream;
+    }
+
+    const interval = setInterval(async () => {
+      if (!video || video.readyState !== 4) return;
+
+      const detections = await faceapi.detectAllFaces(
+        video,
+        new faceapi.TinyFaceDetectorOptions()
+      );
+
+      if (detections.length === 0) {
+        setWarning('No face detected!');
+        localViolationCount += 1;
+        reportViolation('NO_FACE');
+      } else if (detections.length > 1) {
+        setWarning('Multiple faces detected!');
+        localViolationCount += 1;
+        reportViolation('MULTIPLE_FACE');
+      } else {
+        setWarning('');
+      }
+
+      if (localViolationCount >= 3) {
+        alert('Exam auto submitted!');
+        handleSubmit();
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [accessChecked, examLocked, cameraStream]);
+
+  useEffect(() => {
+    if (!accessChecked || examLocked) return;
+
+    let localViolationCount = 0;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) return;
+
+      localViolationCount += 1;
+      setWarning('Tab switching detected!');
+      reportViolation('TAB_SWITCH');
+
+      if (localViolationCount >= 3) {
+        alert('Exam auto submitted!');
+        handleSubmit();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [accessChecked, examLocked]);
+
+  const reportViolation = async (type) => {
+    try {
+      await postViolation({
+        user_id: Number(userId),
+        exam_id: Number(examId),
+        type,
+      });
     } catch (error) {
-      console.error('Failed to fetch exam data', error);
-      setWarning('Failed to load exam. Please try again.');
-    } finally {
-      setLoading(false);
+      console.log('Violation API failed');
     }
   };
-  
+
   const formatTime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -158,49 +255,66 @@ useEffect(() => {
   };
 
   const handleAnswerChange = (questionId, value) => {
-    setAnswers({
-      ...answers,
+    setAnswers((prev) => ({
+      ...prev,
       [questionId]: value,
-    });
+    }));
   };
 
   const handleSubmit = async () => {
     if (examSubmitted || submitting) return;
-    
+
     setSubmitting(true);
     setSubmitDialog(false);
 
     try {
-      // Filter out empty answers
       const filteredAnswers = {};
-      Object.keys(answers).forEach(key => {
+      Object.keys(answers).forEach((key) => {
         if (answers[key] && answers[key].trim() !== '') {
           filteredAnswers[key] = answers[key];
         }
       });
 
       const submitData = {
-        user_id: parseInt(userId),
-        exam_id: parseInt(examId),
+        user_id: Number(userId),
+        exam_id: Number(examId),
         answers: filteredAnswers,
-        time_taken: examData?.duration * 60 - timeLeft // Calculate time taken
+        time_taken: (examData?.duration || 0) * 60 - timeLeft,
       };
-      
+
       const response = await submitExam(submitData);
-      
-      // Navigate to results page
-      navigate('/result', { 
-        state: { 
+
+      if (response.data?.already_completed) {
+        setWarning('You have already completed this exam.');
+        navigate('/dashboard', { replace: true });
+        return;
+      }
+
+      if (response.data?.error) {
+        setWarning(response.data.error);
+        setSubmitting(false);
+        return;
+      }
+
+      setExamSubmitted(true);
+
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+      }
+
+      localStorage.setItem('refreshDashboard', 'true');
+
+      navigate('/result', {
+        state: {
           score: response.data.score,
           total: response.data.total_questions,
-          percentage: response.data.percentage,
+          percentage: response.data.percentage ?? 0,
           correct: response.data.correct_answers,
           wrong: response.data.wrong_answers,
           status: response.data.status,
-          passing_marks: response.data.passing_marks
-        } 
+          passing_marks: response.data.passing_marks ?? 40,
+        },
       });
-      
     } catch (error) {
       console.error('Failed to submit exam', error);
       setWarning('Failed to submit exam. Please try again.');
@@ -213,9 +327,8 @@ useEffect(() => {
     setTimeout(handleSubmit, 2000);
   };
 
-  const getAnsweredCount = () => {
-    return Object.values(answers).filter(answer => answer && answer.trim() !== '').length;
-  };
+  const getAnsweredCount = () =>
+    Object.values(answers).filter((answer) => answer && answer.trim() !== '').length;
 
   const handleNextQuestion = () => {
     if (currentQuestion < questions.length - 1) {
@@ -229,7 +342,7 @@ useEffect(() => {
     }
   };
 
-  if (loading) {
+  if (loading || !accessChecked) {
     return (
       <Box
         sx={{
@@ -264,7 +377,7 @@ useEffect(() => {
             No questions found
           </Typography>
           <Typography variant="body1" sx={{ mb: 3 }}>
-            This exam doesn't have any questions yet.
+            This exam doesn&apos;t have any questions yet.
           </Typography>
           <Button
             variant="contained"
@@ -290,7 +403,6 @@ useEffect(() => {
       }}
     >
       <Container maxWidth="lg">
-        {/* Header */}
         <Box
           sx={{
             display: 'flex',
@@ -332,7 +444,6 @@ useEffect(() => {
         )}
 
         <Grid container spacing={3}>
-          {/* Main Question Area */}
           <Grid item xs={12} md={8}>
             <StyledPaper>
               <Box sx={{ mb: 3 }}>
@@ -348,17 +459,18 @@ useEffect(() => {
 
               <RadioGroup
                 value={answers[questions[currentQuestion]?.id] || ''}
-                onChange={(e) =>
-                  handleAnswerChange(questions[currentQuestion]?.id, e.target.value)
+                onChange={(event) =>
+                  handleAnswerChange(questions[currentQuestion]?.id, event.target.value)
                 }
               >
                 {['a', 'b', 'c', 'd'].map((option) => {
                   const optionValue = questions[currentQuestion]?.[`option_${option}`];
                   const optionLabel = option.toUpperCase();
+
                   return optionValue ? (
                     <FormControlLabel
                       key={option}
-                      value={optionValue}
+                      value={optionLabel} // send the letter so backend can compare to correct_answer
                       control={<Radio />}
                       label={`${optionLabel}: ${optionValue}`}
                       sx={{
@@ -386,7 +498,7 @@ useEffect(() => {
                 >
                   Previous
                 </Button>
-                
+
                 {currentQuestion === questions.length - 1 ? (
                   <Button
                     variant="contained"
@@ -417,26 +529,25 @@ useEffect(() => {
             </StyledPaper>
           </Grid>
 
-          {/* Question Navigator */}
           <Grid item xs={12} md={4}>
             <StyledPaper>
               <Typography variant="h6" gutterBottom>
                 Question Navigator
               </Typography>
-              
+
               <Box sx={{ display: 'flex', flexWrap: 'wrap', mb: 2 }}>
-                {questions.map((q, index) => (
+                {questions.map((question, index) => (
                   <QuestionNumber
-                    key={q.id}
+                    key={question.id}
                     active={currentQuestion === index}
-                    answered={!!answers[q.id] && answers[q.id].trim() !== ''}
+                    answered={!!answers[question.id] && answers[question.id].trim() !== ''}
                     onClick={() => setCurrentQuestion(index)}
                   >
                     {index + 1}
                   </QuestionNumber>
                 ))}
               </Box>
-              
+
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <Box
                   sx={{
@@ -449,7 +560,7 @@ useEffect(() => {
                 />
                 <Typography variant="body2">Answered</Typography>
               </Box>
-              
+
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <Box
                   sx={{
@@ -462,7 +573,7 @@ useEffect(() => {
                 />
                 <Typography variant="body2">Not Answered</Typography>
               </Box>
-              
+
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
                 <Box
                   sx={{
@@ -491,15 +602,14 @@ useEffect(() => {
         </Grid>
       </Container>
 
-      {/* Submit Confirmation Dialog */}
-      <Dialog 
-        open={submitDialog} 
+      <Dialog
+        open={submitDialog}
         onClose={() => setSubmitDialog(false)}
         PaperProps={{
           sx: {
             borderRadius: '20px',
             padding: 2,
-          }
+          },
         }}
       >
         <DialogTitle sx={{ textAlign: 'center', fontWeight: 'bold' }}>
@@ -509,12 +619,14 @@ useEffect(() => {
           <Typography variant="body1" sx={{ mb: 2, textAlign: 'center' }}>
             Are you sure you want to submit your exam?
           </Typography>
-          <Box sx={{ 
-            backgroundColor: '#f5f5f5', 
-            p: 2, 
-            borderRadius: '10px',
-            textAlign: 'center'
-          }}>
+          <Box
+            sx={{
+              backgroundColor: '#f5f5f5',
+              p: 2,
+              borderRadius: '10px',
+              textAlign: 'center',
+            }}
+          >
             <Typography variant="h4" color="primary" sx={{ fontWeight: 'bold' }}>
               {getAnsweredCount()}/{questions.length}
             </Typography>
@@ -529,7 +641,7 @@ useEffect(() => {
           )}
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', gap: 2, pb: 3 }}>
-          <Button 
+          <Button
             onClick={() => setSubmitDialog(false)}
             variant="outlined"
             sx={{
@@ -541,9 +653,9 @@ useEffect(() => {
           >
             Review
           </Button>
-          <Button 
-            onClick={handleSubmit} 
-            variant="contained" 
+          <Button
+            onClick={handleSubmit}
+            variant="contained"
             color="success"
             disabled={submitting}
             sx={{
@@ -557,20 +669,19 @@ useEffect(() => {
         </DialogActions>
       </Dialog>
 
-      {/* Auto-submit dialog */}
-      <Dialog 
-        open={warning === 'Time is up! Submitting your exam...'} 
+      <Dialog
+        open={warning === 'Time is up! Submitting your exam...'}
         PaperProps={{
           sx: {
             borderRadius: '20px',
             padding: 2,
-          }
+          },
         }}
       >
         <DialogContent sx={{ textAlign: 'center' }}>
           <Timer sx={{ fontSize: 60, color: '#f44336', mb: 2 }} />
           <Typography variant="h5" gutterBottom>
-            Time's Up!
+            Time&apos;s Up!
           </Typography>
           <Typography variant="body1">
             Your exam is being automatically submitted...
@@ -578,6 +689,20 @@ useEffect(() => {
           <LinearProgress sx={{ mt: 3, borderRadius: '5px' }} />
         </DialogContent>
       </Dialog>
+
+      <video
+        ref={videoRef}
+        autoPlay
+        muted
+        style={{
+          width: '200px',
+          position: 'fixed',
+          bottom: 10,
+          right: 10,
+          borderRadius: '10px',
+          border: '2px solid red',
+        }}
+      />
     </Box>
   );
 };

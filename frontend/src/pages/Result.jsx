@@ -63,15 +63,16 @@ const Result = () => {
     wrong: 0 
   };
 
+ const getGrade = () => {
   if (status === "FAIL") {
-  return { text: 'F', color: '#f44336', message: 'Failed' };
-}
-if (percentage >= 90) return { text: 'A+', color: '#4caf50', message: 'Excellent!' };
-if (percentage >= 80) return { text: 'A', color: '#4caf50', message: 'Great Job!' };
-if (percentage >= 70) return { text: 'B+', color: '#8bc34a', message: 'Good Work!' };
-if (percentage >= 60) return { text: 'B', color: '#ff9800', message: 'Satisfactory' };
-return { text: 'C', color: '#ff9800', message: 'Needs Improvement' };
-
+    return { text: 'F', color: '#f44336', message: 'Failed' };
+  }
+  if (percentage >= 90) return { text: 'A+', color: '#4caf50', message: 'Excellent!' };
+  if (percentage >= 80) return { text: 'A', color: '#4caf50', message: 'Great Job!' };
+  if (percentage >= 70) return { text: 'B+', color: '#8bc34a', message: 'Good Work!' };
+  if (percentage >= 60) return { text: 'B', color: '#ff9800', message: 'Satisfactory' };
+  return { text: 'C', color: '#ff9800', message: 'Needs Improvement' };
+};
   const grade = getGrade();
 
   const chartData = {
@@ -116,7 +117,7 @@ return { text: 'C', color: '#ff9800', message: 'Needs Improvement' };
           </Typography>
 
           <Typography variant="h1" sx={{ color: grade.color, fontWeight: 700, mb: 2 }}>
-            {percentage}%
+            {percentage !== undefined && percentage !== null ? `${percentage}%` : "0%"}
           </Typography>
           <Typography
             variant="h4"
@@ -169,7 +170,7 @@ return { text: 'C', color: '#ff9800', message: 'Needs Improvement' };
                     Total Score
                   </Typography>
                   <Typography variant="body1" sx={{ mb: 2 }}>
-                    Passing Marks: {passing_marks}%
+                    Passing Marks: {passing_marks !== undefined ? `${passing_marks}%` : "0%"}
                   </Typography>
                 </CardContent>
               </ResultCard>

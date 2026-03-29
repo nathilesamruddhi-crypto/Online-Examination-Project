@@ -43,6 +43,7 @@ import {
   Quiz,
   Assignment,
   Dashboard as DashboardIcon,
+  AutoAwesome,
 } from '@mui/icons-material';
 import { 
   addQuestion, 
@@ -51,7 +52,8 @@ import {
   getExams,
   deleteQuestion,
   updateQuestion,
-  deleteExam 
+  deleteExam,
+  generateAIQuestions,
 } from '../api';  // Make sure these match the exports in your api.js
 
 const StyledCard = styled(Card)(({ theme }) => ({
@@ -71,6 +73,7 @@ const AdminDashboard = () => {
   const [questions, setQuestions] = useState([]);
   const [openExamDialog, setOpenExamDialog] = useState(false);
   const [openQuestionDialog, setOpenQuestionDialog] = useState(false);
+  const [openAIDialog, setOpenAIDialog] = useState(false);
   const [selectedExam, setSelectedExam] = useState(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
@@ -92,6 +95,13 @@ const AdminDashboard = () => {
     option_d: '',
     correct_answer: '', // Make sure this matches your API field name
     marks: 1,
+  });
+
+  const [aiForm, setAiForm] = useState({
+    subject: '',
+    difficulty: 'medium',
+    count: 5,
+    context: '',
   });
 
   useEffect(() => {
@@ -184,6 +194,31 @@ const AdminDashboard = () => {
       console.error(error);
     }
     setLoading(false);
+  };
+
+  const handleGenerateAI = async () => {
+    if (!selectedExam) {
+      setError('Select an exam first');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await generateAIQuestions({
+        ...aiForm,
+        exam_id: selectedExam.id,
+      });
+      setSuccess('AI-generated questions added!');
+      setOpenAIDialog(false);
+      await fetchQuestions(selectedExam.id);
+      setAiForm({ subject: '', difficulty: 'medium', count: 5, context: '' });
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err?.error || 'AI generation failed');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDeleteQuestion = async (questionId) => {
@@ -367,21 +402,32 @@ const AdminDashboard = () => {
                     </Select>
                   </FormControl>
                 </Box>
-                <Button
-                  variant="contained"
-                  startIcon={<Add />}
-                  onClick={() => {
-                    setQuestionForm({ ...questionForm, exam_id: selectedExam?.id });
-                    setOpenQuestionDialog(true);
-                  }}
-                  disabled={!selectedExam}
-                  sx={{
-                    borderRadius: '10px',
-                    background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
-                  }}
-                >
-                  Add Question
-                </Button>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<AutoAwesome />}
+                    onClick={() => setOpenAIDialog(true)}
+                    disabled={!selectedExam}
+                    sx={{ borderRadius: '10px' }}
+                  >
+                    Generate with AI
+                  </Button>
+                  <Button
+                    variant="contained"
+                    startIcon={<Add />}
+                    onClick={() => {
+                      setQuestionForm({ ...questionForm, exam_id: selectedExam?.id });
+                      setOpenQuestionDialog(true);
+                    }}
+                    disabled={!selectedExam}
+                    sx={{
+                      borderRadius: '10px',
+                      background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
+                    }}
+                  >
+                    Add Question
+                  </Button>
+                </Box>
               </Box>
 
               {selectedExam && (
@@ -625,6 +671,79 @@ const AdminDashboard = () => {
             }}
           >
             Add Question
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* AI Generate Dialog */}
+      <Dialog
+        open={openAIDialog}
+        onClose={() => setOpenAIDialog(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: '20px' } }}
+      >
+        <DialogTitle>Generate Questions with AI</DialogTitle>
+        <DialogContent>
+          <TextField
+            margin="dense"
+            label="Subject / Topic"
+            fullWidth
+            variant="outlined"
+            value={aiForm.subject}
+            onChange={(e) => setAiForm({ ...aiForm, subject: e.target.value })}
+            sx={{ mb: 2, borderRadius: '10px' }}
+          />
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>Difficulty</InputLabel>
+            <Select
+              value={aiForm.difficulty}
+              label="Difficulty"
+              onChange={(e) => setAiForm({ ...aiForm, difficulty: e.target.value })}
+              sx={{ borderRadius: '10px' }}
+            >
+              <MenuItem value="easy">Easy</MenuItem>
+              <MenuItem value="medium">Medium</MenuItem>
+              <MenuItem value="hard">Hard</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            margin="dense"
+            label="Number of Questions"
+            type="number"
+            fullWidth
+            variant="outlined"
+            value={aiForm.count}
+            onChange={(e) => setAiForm({ ...aiForm, count: parseInt(e.target.value) || 1 })}
+            sx={{ mb: 2, borderRadius: '10px' }}
+            inputProps={{ min: 1, max: 20 }}
+          />
+          <TextField
+            margin="dense"
+            label="Extra Context (optional)"
+            type="text"
+            fullWidth
+            multiline
+            rows={3}
+            variant="outlined"
+            value={aiForm.context}
+            onChange={(e) => setAiForm({ ...aiForm, context: e.target.value })}
+            sx={{ borderRadius: '10px' }}
+            placeholder="e.g., focus on OS scheduling; include one calculation"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenAIDialog(false)}>Cancel</Button>
+          <Button 
+            onClick={handleGenerateAI} 
+            variant="contained"
+            disabled={loading || !aiForm.subject || !selectedExam}
+            sx={{
+              borderRadius: '10px',
+              background: 'linear-gradient(45deg, #667eea 30%, #764ba2 90%)',
+            }}
+          >
+            {loading ? <CircularProgress size={22} /> : 'Generate & Save'}
           </Button>
         </DialogActions>
       </Dialog>

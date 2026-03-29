@@ -131,22 +131,22 @@ def get_student_dashboard(user_id: int):
         db.close()
         
         return {
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "first_name": user.first_name,
-                "last_name": user.last_name
-            },
-            "stats": {
-                "total_exams_taken": total_exams_taken,
-                "average_score": round(avg_score, 2),
-                "best_score": round(best_score, 2),
-                "passed": passed,
-                "failed": failed
-            },
-            "available_exams": exams_list,
-            "recent_results": recent_results
-        }
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name
+        },
+        "stats": {
+            "total_exams_taken": total_exams_taken,
+            "average_score": round(avg_score, 2),
+            "best_score": round(best_score, 2),
+            "passed": passed,
+            "failed": failed
+        },
+        "exams": exams_list,   # 🔥 THIS IS THE FIX
+        "recent_results": recent_results
+    }
         
     except Exception as e:
         db.close()

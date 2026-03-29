@@ -454,8 +454,33 @@ router = APIRouter(prefix="/results", tags=["results"])
 def get_user_results(user_id: int):
     db = SessionLocal()
     try:
-        results = db.query(Result).filter(Result.user_id == user_id).all()
-        return results
+        results = (
+            db.query(Result)
+            .filter(Result.user_id == user_id)
+            .order_by(Result.completed_at.desc())
+            .all()
+        )
+
+        result_list = []
+        for result in results:
+            exam = db.query(Exam).filter(Exam.id == result.exam_id).first()
+            passing_marks = exam.passing_marks if exam and exam.passing_marks else 40
+
+            result_list.append({
+                "id": result.id,
+                "user_id": result.user_id,
+                "exam_id": result.exam_id,
+                "exam_title": exam.title if exam else "Unknown",
+                "score": result.score,
+                "total_questions": result.total_questions,
+                "correct_answers": result.correct_answers,
+                "wrong_answers": result.wrong_answers,
+                "percentage": result.percentage,
+                "completed_at": result.completed_at,
+                "status": "PASS" if (result.percentage or 0) >= passing_marks else "FAIL",
+            })
+
+        return result_list
     except Exception as e:
         return {"error": str(e)}
     finally:
@@ -474,8 +499,21 @@ def submit_exam(data: dict):
         exam_id = data.get("exam_id")
         answers = data.get("answers")
 
-        if not user_id or not exam_id or not answers:
+        if user_id is None or exam_id is None or answers is None:
             return {"error": "Missing data"}
+
+        existing_result = db.query(Result).filter(
+            Result.user_id == user_id,
+            Result.exam_id == exam_id
+        ).first()
+
+        if existing_result:
+            return {
+                "error": "You have already completed this exam.",
+                "already_completed": True
+            }
+
+        answers = answers or {}
 
         questions = db.query(Question).filter(
             Question.exam_id == exam_id
@@ -512,10 +550,10 @@ def submit_exam(data: dict):
 
         # ✅ percentage
         total_marks = exam.total_marks if exam.total_marks else len(questions)
-        percentage = (score / total_marks) * 100
+        percentage = (score / total_marks) * 100 if total_marks > 0 else 0
 
-        # ✅ PASS / FAIL
-        status = "PASS" if percentage >= exam.passing_marks else "FAIL"
+        passing_marks = exam.passing_marks if exam.passing_marks else 40
+        status = "PASS" if percentage >= passing_marks else "FAIL"
 
         # ✅ SAVE RESULT
         result = Result(
@@ -526,12 +564,12 @@ def submit_exam(data: dict):
             correct_answers=correct,
             wrong_answers=wrong,
             percentage=percentage,
-            completed_at=datetime.utcnow(),
-            status=status
+            completed_at=datetime.utcnow()
         )
 
         db.add(result)
         db.commit()
+        db.refresh(result)
 
         return {
             "message": "Exam submitted",
@@ -540,7 +578,7 @@ def submit_exam(data: dict):
             "correct_answers": correct,
             "wrong_answers": wrong,
             "percentage": percentage,
-            "passing_marks": exam.passing_marks,
+            "passing_marks": passing_marks, 
             "status": status
         }
 

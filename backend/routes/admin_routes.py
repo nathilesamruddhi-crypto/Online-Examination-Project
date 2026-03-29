@@ -1,23 +1,37 @@
 from fastapi import APIRouter
 from database import SessionLocal
 from models import Exam
+from pydantic import BaseModel
+
+class ExamCreate(BaseModel):
+    title: str
+    duration: int
+    description: str | None = None
 
 router = APIRouter(prefix="/admin")
 
 @router.post("/create-exam")
-def create_exam(title: str, duration: int):
+def create_exam(exam: ExamCreate):
 
     db = SessionLocal()
 
-    exam = Exam(
-        title=title,
-        duration=duration
+    new_exam = Exam(
+        title=exam.title,
+        duration=exam.duration,
+        description=exam.description
     )
 
-    db.add(exam)
+    db.add(new_exam)
     db.commit()
+    db.refresh(new_exam)
 
-    return {"message": "Exam created"}
+    db.close()
+
+    return {
+        "message": "Exam created",
+        "exam_id": new_exam.id,
+        "duration": new_exam.duration
+    }
 
 @router.post("/add-question")
 

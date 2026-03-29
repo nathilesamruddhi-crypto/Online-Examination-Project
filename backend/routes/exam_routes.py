@@ -4,11 +4,21 @@ from database import SessionLocal
 from models import Exam, Question, User
 from schemas import (
     ExamCreate, ExamUpdate, ExamResponse,
-    QuestionCreate, QuestionUpdate, QuestionResponse
+    QuestionCreate, QuestionUpdate, QuestionResponse,
+    AIQuestionGenerateRequest, GeneratedQuestion
 )
-from ai.proctoring import monitor_student
+
 from typing import List
 import logging
+import os
+import json
+from pathlib import Path
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# Load environment variables from backend/.env explicitly to avoid cwd issues
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,7 +43,7 @@ def get_all_exams():
                 "description": exam.description,
                 "duration": exam.duration,
                 "total_marks": exam.total_marks,
-                "passing_marks": exam.passing_marks,
+                "passing_marks": exam.passing_marks if exam.passing_marks else 40,
                 "is_active": exam.is_active,
                 "question_count": question_count,
                 "created_by": exam.created_by,
@@ -373,10 +383,113 @@ def bulk_add_questions(questions: List[QuestionCreate]):
         db.close()
         return {"error": str(e)}
     
-@router.get("/start-ai-monitor")
 
-def start_ai_monitor():
+@router.post("/violation")
+def violation(data: dict):
+    print("Violation:", data)
+    return {"message": "ok"}    
 
-    monitor_student()
+@router.get("/exam-details/{exam_id}")
+def exam_details(exam_id: int):
+    db = SessionLocal()
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    db.close()
 
-    return {"message": "AI monitoring started"}     
+    if not exam:
+        return {"error": "Not found"}
+
+    return exam    
+
+
+# ============= AI Question Generation =============
+
+def _get_openai_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+    return OpenAI(api_key=api_key)
+
+
+def _build_generation_prompt(payload: AIQuestionGenerateRequest):
+    base = (
+        f"You are an exam question generator. Create {payload.count} multiple-choice questions "
+        f"for the subject: {payload.subject}. Difficulty: {payload.difficulty}. "
+        "Return JSON with an array under key 'questions'. Each item must have "
+        "question_text, option_a, option_b, option_c, option_d, correct_answer (A/B/C/D)."
+    )
+    if payload.context:
+        base += f" Context: {payload.context}"
+    return base
+
+
+@router.post("/ai/generate", response_model=List[GeneratedQuestion])
+def generate_questions(payload: AIQuestionGenerateRequest):
+    try:
+        client = _get_openai_client()
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+        messages = [
+            {"role": "system", "content": "Respond only with JSON."},
+            {"role": "user", "content": _build_generation_prompt(payload)},
+        ]
+
+        completion = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.4,
+        )
+
+        raw_content = completion.choices[0].message.content or "{}"
+        try:
+            data = json.loads(raw_content)
+        except json.JSONDecodeError:
+            logger.error(f"AI response not JSON: {raw_content[:400]}")
+            raise HTTPException(status_code=500, detail="AI response parse failed")
+
+        items = data.get("questions", [])
+
+        results: List[GeneratedQuestion] = []
+
+        db = SessionLocal()
+        exam = None
+        if payload.exam_id:
+            exam = db.query(Exam).filter(Exam.id == payload.exam_id).first()
+            if not exam:
+                db.close()
+                raise HTTPException(status_code=404, detail="Exam not found")
+
+        for item in items:
+            q = GeneratedQuestion(
+                question_text=item["question_text"],
+                option_a=item["option_a"],
+                option_b=item["option_b"],
+                option_c=item["option_c"],
+                option_d=item["option_d"],
+                correct_answer=item["correct_answer"],
+            )
+            results.append(q)
+
+            if exam:
+                new_question = Question(
+                    exam_id=payload.exam_id,
+                    question_text=q.question_text,
+                    option_a=q.option_a,
+                    option_b=q.option_b,
+                    option_c=q.option_c,
+                    option_d=q.option_d,
+                    correct_answer=q.correct_answer,
+                    marks=1,
+                )
+                db.add(new_question)
+
+        if exam:
+            db.commit()
+            db.close()
+
+        return results
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"AI generation failed: {e}")
+        raise HTTPException(status_code=500, detail="AI generation failed")

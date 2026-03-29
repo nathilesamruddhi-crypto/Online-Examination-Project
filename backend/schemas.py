@@ -3,6 +3,22 @@ from pydantic import BaseModel, Field, EmailStr, validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+# AI generation schemas
+class AIQuestionGenerateRequest(BaseModel):
+    subject: str = Field(..., min_length=2)
+    difficulty: Optional[str] = Field(default="medium")
+    count: int = Field(default=5, ge=1, le=20)
+    context: Optional[str] = None
+    exam_id: Optional[int] = None  # if provided, save to this exam
+
+class GeneratedQuestion(BaseModel):
+    question_text: str
+    option_a: str
+    option_b: str
+    option_c: str
+    option_d: str
+    correct_answer: str
+
 # User Schemas
 class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)

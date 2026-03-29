@@ -6,7 +6,7 @@ const API = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
+  timeout: 30000, // allow slower backend responses
 });
 
 // Request interceptor
@@ -54,7 +54,9 @@ export const getExam = (examId) => API.get(`/exams/${examId}`);
 export const createExam = (examData) => API.post('/exams/', examData);
 export const updateExam = (examId, examData) => API.put(`/exams/${examId}`, examData);
 export const deleteExam = (examId) => API.delete(`/exams/${examId}`);
-export const startAIMonitor = () => API.get('/exams/start-ai-monitor');
+// export const startAIMonitor = () => API.get('/exams/ai/start-monitor');
+export const sendViolation = (data) => API.post('/exams/violation', data);
+export const getExamDetails = (examId) => API.get(`/exams/exam-details/${examId}`);
 // ============= QUESTION ENDPOINTS =============
 export const getExamQuestions = (examId) => API.get(`/exams/${examId}/questions`);
 export const getQuestion = (questionId) => API.get(`/exams/questions/${questionId}`);
@@ -62,6 +64,7 @@ export const addQuestion = (questionData) => API.post('/exams/questions', questi
 export const updateQuestion = (questionId, questionData) => API.put(`/exams/questions/${questionId}`, questionData);
 export const deleteQuestion = (questionId) => API.delete(`/exams/questions/${questionId}`);
 export const bulkAddQuestions = (questions) => API.post('/exams/questions/bulk', questions);
+export const generateAIQuestions = (payload) => API.post('/exams/ai/generate', payload);
 
 // ============= RESULT ENDPOINTS =============
 export const submitExam = (data) => API.post('/results/submit', data);
