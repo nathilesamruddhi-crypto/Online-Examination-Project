@@ -1,14 +1,20 @@
 # backend/main.py
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from routes import user_routes, exam_routes, result_routes, dashboard_routes
+from routes import (
+    user_routes,
+    exam_routes,
+    result_routes,
+    dashboard_routes
+)
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create tables
+# Create database tables
 Base.metadata.create_all(bind=engine)
 logger.info("✅ Database tables created/verified")
 
@@ -18,20 +24,30 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration
+# ================= CORS CONFIGURATION =================
+
+origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://online-examination-project-40s88hjw1.vercel.app",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include routers
+# ================= ROUTERS =================
+
 app.include_router(user_routes.router)
 app.include_router(exam_routes.router)
 app.include_router(result_routes.router)
 app.include_router(dashboard_routes.router)
+
+# ================= ROOT =================
 
 @app.get("/")
 def root():
@@ -73,6 +89,11 @@ def root():
         }
     }
 
+# ================= HEALTH CHECK =================
+
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "database": "connected"}
+    return {
+        "status": "healthy",
+        "database": "connected"
+    }
